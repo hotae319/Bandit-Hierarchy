@@ -27,6 +27,24 @@ class GridEnv:
         self.xcur = x0 
         self.xtraj = [x0[0]]
         self.ytraj = [x0[1]]
+
+        # Each cell's information
+        # previous_visit means this cell is included in the previous feasible trajectory
+        dt = 0.1
+        Ad = sparse.csc_matrix([
+            [1,0,dt,0],
+            [0,1,0,dt],
+            [0,0,1,0],
+            [0,0,0,1]])
+        Bd = sparse.csc_matrix([
+            [0,0],
+            [0,0],
+            [dt,0],
+            [0,dt]])
+        cell_info = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1} 
+        # List including all cell's info
+        # self.info[Gx][Gy] returns the each cell's info
+        self.info = [[cell_info]*self.N1]*self.N2 
     def set_occupancy(self,occ):
         # occ = [[1,2],[4,5]] (the set of (col,row) of grids)
         return 1
@@ -45,11 +63,16 @@ class GridEnv:
         if x == None:
             x = self.xcur
         dt = 0.1
+        # Decide actual A,B
+        Gx = int(self.xcur[0])
+        Gy = int(self.xcur[1])
+        k = ((Gx+Gy)%3)*0.03
+        # k = 0
         A = np.array([
             [1,0,dt,0],
             [0,1,0,dt],
-            [0,0,1,0],
-            [0,0,0,1]])        
+            [0,0,1-k,0],
+            [0,0,0,1-k]])        
         B = np.array([
             [0,0],
             [0,0],
@@ -58,7 +81,7 @@ class GridEnv:
         b = 0.05
         a = -0.05
         w = ((b-a)*np.random.random_sample((4,)) + a)
-        x_next = A@x + B@u + w
+        x_next = A@x + B@u #+ w
         self.xcur = x_next
         self.xtraj.append(x_next[0])
         self.ytraj.append(x_next[1])
@@ -66,6 +89,36 @@ class GridEnv:
         err = self.xtar - self.xcur
         deviation_cost = 0.5* err.T@Q@err
         return deviation_cost
+    def check_safegrid(self, Gx, Gy):
+        # Whether we can go to the cell or not
+        for i in range(-1,2):
+            for j in range(-1,2):
+                cell_info = self.info[Gx+i][Gx+j]
+                if cell_info['previous_visit'] == 1:
+                    safety = 1
+                    break
+                else:
+                    safety = 0
+        return safety     
+    def store_info(self, Gx, Gy):
+        # self.info = 0
+        a = 1
+    def get_info(self):
+        Gx = int(self.xcur[0])
+        Gy = int(self.xcur[1])
+        info = self.info[Gx][Gy]
+        return info, Gx, Gy
+    def observe(self):
+        Gx = int(self.xcur[0])
+        Gy = int(self.xcur[1])
+        occupancy_surr = np.zeros((3,3)) # 1 : empty, 0 : occupied
+        cango_surr = np.zeros((3,3)) # 1: can go, 0 : cannot go
+        for i in range(-1,2):
+            for j in range(-1,2):
+                cell_info = self.info[Gx+i][Gx+j]
+                occupancy_surr[i+1,j+1] = cell_info['occupancy']
+                cango_surr[i+1,j+1] = self.check_safegrid(Gx+i,Gy+j)
+        return occupancy_surr, cango_surr 
     def visualize(self, pre_traj = []):
         fig, ax = plt.subplots()
         # draw gridlines
