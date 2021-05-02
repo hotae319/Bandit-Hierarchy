@@ -10,6 +10,7 @@ import scipy as sp
 from scipy import sparse
 import sys, os
 import casadi as ca
+import copy
 from math import cos, sin, pi
 abspath = os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 sys.path.append(abspath)
@@ -24,7 +25,8 @@ class GridEnv:
         self.N2 = N2
         self.lx = lx
         self.ly = ly
-        self.xcur = x0 
+        self.x0 = x0
+        self.xcur = x0         
         self.xtraj = [x0[0]]
         self.ytraj = [x0[1]]
 
@@ -41,21 +43,40 @@ class GridEnv:
             [0,0],
             [dt,0],
             [0,dt]])
-        cell_info = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1} 
+        cell_info_true = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1}
+        cell_info_observed = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1} 
         # List including all cell's info
         # self.info[Gx][Gy] returns the each cell's info
-        self.info = [[cell_info]*self.N1]*self.N2 
+        self.info_true = [[{} for i in range(self.N1)] for j in range(self.N2)]
+        self.info = [[{} for i in range(self.N1)] for j in range(self.N2)]
+        for i in range(self.N1):
+            for j in range(self.N2):
+                self.info_true[i][j] = copy.deepcopy(cell_info_true)
+                self.info[i][j] = copy.deepcopy(cell_info_observed)
+    def initialize(self,x0):
+        self.xcur = x0         
+        self.xtraj = [x0[0]]
+        self.ytraj = [x0[1]]
+
     def set_occupancy(self,occ):
         # occ = [[1,2],[4,5]] (the set of (col,row) of grids)
         return 1
+    def set_feasible_grids(self, grid_seq, cost2go_seq):
+        for i in range(len(cost2go_seq)):
+            grid = grid_seq[i]
+            self.info[grid[0]][grid[1]]['cost2go'] = cost2go_seq[i]
+            print(self.info[grid[0]][grid[1]]['cost2go'])            
+        return 1
+    def set_destination(self, Gx_goal, Gy_goal):
+        self.destination = [Gx_goal, Gy_goal] 
     def set_target(self, Gtar):
         # Gcur : tuple (a,b)
         # Gtar : tuple (c,d)
         # center pos
         # xcur = self.lx * (Gcur[0]-1) + self.lx/2
         # ycur = self.ly * (Gcur[1]-1) + self.ly/2
-        xtar = self.lx * (Gtar[0]-1) + self.lx/2
-        ytar = self.ly * (Gtar[1]-1) + self.ly/2
+        xtar = self.lx * (Gtar[0]) + self.lx/2
+        ytar = self.ly * (Gtar[1]) + self.ly/2
         # self.xcur = np.array([xcur, ycur, 0, 0]) # we can consider the previous vel.
         self.xtar = np.array([xtar, ytar, 0, 0])
         return self.xtar
@@ -100,14 +121,20 @@ class GridEnv:
                 else:
                     safety = 0
         return safety     
-    def store_info(self, Gx, Gy):
-        # self.info = 0
-        a = 1
+    def update_info(self, Gx, Gy, cell_info):
+        self.info[Gx][Gy]['A'] = cell_info['A']
+        self.info[Gx][Gy]['B'] = cell_info['B']
+        self.info[Gx][Gy]['occupancy'] = cell_info['occupancy']
+    def update_info_episodic(self, Gx, Gy, cell_info_epi):
+        self.info[Gx][Gy]['previous_visit'] = cell_info_epi['previous_visit']
+        self.info[Gx][Gy]['cost2go'] = cell_info_epi['cost2go']
     def get_info(self):
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
         info = self.info[Gx][Gy]
         return info, Gx, Gy
+    def get_cost2go(self, Gx, Gy):
+        return self.info[Gx][Gy]['cost2go']
     def observe(self):
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
@@ -115,8 +142,8 @@ class GridEnv:
         cango_surr = np.zeros((3,3)) # 1: can go, 0 : cannot go
         for i in range(-1,2):
             for j in range(-1,2):
-                cell_info = self.info[Gx+i][Gx+j]
-                occupancy_surr[i+1,j+1] = cell_info['occupancy']
+                cell_info_true = self.info_true[Gx+i][Gx+j]
+                occupancy_surr[i+1,j+1] = cell_info_true['occupancy']
                 cango_surr[i+1,j+1] = self.check_safegrid(Gx+i,Gy+j)
         return occupancy_surr, cango_surr 
     def visualize(self, pre_traj = []):
@@ -129,6 +156,8 @@ class GridEnv:
         ax.set_xlim(0,self.lx*self.N1)
         plt.scatter(self.xcur[0], self.xcur[1], color = 'red', s= 50, marker =  'x' )
         plt.scatter(self.xtraj,self.ytraj)
+        plt.scatter(self.xtar[0],self.xtar[1], color = 'green', s= 50, marker =  'o')
+        plt.scatter(self.destination[0]*self.lx + self.lx/2,self.destination[1]*self.ly + self.ly/2, color = 'hotpink', s= 100, marker =  'p')
         # prediction plot
         pre_xtraj = []
         pre_ytraj = []
@@ -136,7 +165,7 @@ class GridEnv:
             pre_xtraj.append(pre_traj[i][0])
             pre_ytraj.append(pre_traj[i][1])
         plt.scatter(pre_xtraj,pre_ytraj, alpha = 0.5, marker = '^')
-        plt.legend(['current', 'actual_traj','predicted_traj'])
+        plt.legend(['current', 'actual_traj','bandit target','goal','predicted_traj'])
         plt.show()
 
 if __name__ == '__main__':
