@@ -110,6 +110,23 @@ class GridEnv:
         err = self.xtar - self.xcur
         deviation_cost = 0.5* err.T@Q@err
         return deviation_cost
+    def A_regressor(self, x_data, u_data):
+        # Solve x_t+1= (Ad+del_A)x_t+Bdu_t for del_A
+        # Also using sparsity in uncertainty del_A
+        xt=x_data[:,0:-1]
+        ut=u_data
+        xtp1=x_data[:,1:]
+        Adnp=Ad.toarray()
+        Bdnp=Bd.toarray()
+        residual=xtp1-np.dot(Adnp,xt)-np.dot(Bdnp,ut)
+        xt_compressed_pinv=np.linalg.pinv(xt[2:,:])
+        A_uncertain_compressed_fit=np.dot(residual[2:,:],xt_compressed_pinv)
+        del_A=np.block([[np.zeros((2,4))],[np.zeros((2,2)),A_uncertain_compressed_fit]])
+        
+        return Adnp+del_A
+        
+        
+        
     def check_safegrid(self, Gx, Gy):
         # Whether we can go to the cell or not
         for i in range(-1,2):
