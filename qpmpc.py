@@ -111,6 +111,7 @@ print("cell info next:")
 print(env.info[3][4]['cost2go'],env.info[3][5]['cost2go'],env.info[7][7]['cost2go'],env.info[5][4]['cost2go'])
 # print([ele['cost2go'] for ele in env.info_true])
 
+cost_per_episode = []
 feas_seq = []
 i_epi = 0
 while i_epi <= N_episode:
@@ -119,6 +120,7 @@ while i_epi <= N_episode:
     x0 = np.array([3.5,4.5,0,1])
     _, Gx, Gy = env.get_info()
     i_iter = 0
+    sum_local_cost = 0
     ################### START ONE ITERATION WITH BANDIT AND CFTOC ##################
     while i_iter <= N_iter and (Gx != Gx_goal or Gy != Gy_goal):
         # BANDIT POLICY
@@ -153,7 +155,7 @@ while i_epi <= N_episode:
         print("grid_idxs,k {}, {}".format(grid_idxs,k_rmv))
         # pick the best grid cell (or exploration) and decide the target (env.set_target)
         p = np.random.random()
-        eps = 0.1
+        eps = 0.1 + (N_episode - i_epi)/N_episode*0.3
         if p < eps:
             i_min = random.randint(0,len(rewards)-1)
         else:
@@ -255,39 +257,45 @@ while i_epi <= N_episode:
         # compute the actual cost and store the cost between two grid cells
         actual_cost_local = compute_actual_reward(actual_traj, xr, u_traj)
         cost_traj.append(actual_cost_local)
+        sum_local_cost += actual_cost_local
         print(actual_cost_local)
         # estimate A,B from data (regression) and store/update A,B 
-        info_new = {'A':Ad,'B':Bd,'occupancy': 1} 
-        env.update_info(Gx, Gy, info_new) 
+        A_reg = env.A_regressor(np.array(actual_traj), np.array(u_traj))
+        info_new = {'A':A_reg,'B':Bd,'occupancy': 1} 
+        env.update_info_A(Gx, Gy, info_new) 
 
         # update the 'occupancy', 'previous_visit' of observed grid cells
         for i in range(3):
             for j in range(3):
                 if occupancy_surr[i,j] == 1: 
                     # not occupied
-                    info_new = {'A':Ad,'B':Bd, 'occupancy': 1} 
+                    info_new = {'occupancy': 1} 
                 else:
                     # occupied
-                    info_new = {'A':Ad,'B':Bd,'occupancy': 0} 
-                env.update_info(Gx+i-1,Gy+1-j, info_new)
+                    info_new = {'occupancy': 0} 
+                env.update_info_occupy(Gx+i-1,Gy+1-j, info_new)
         i_iter += 1
     i_epi += 1
-################### AFTER REACHING THE GOAL#################
+    print("sum_local_cost:{}".format(sum_local_cost))
+    cost_per_episode.append(sum_local_cost)
+    ################### AFTER REACHING THE GOAL#################
 
-# need to squeeze the grid_traj
-grid_traj_squeezed = grid_traj
-cost_traj_squeezed = cost_traj
-cost2go_traj = []
-for i in range(len(cost_traj_squeezed)):    
-    cost2go_traj.append(sum(cost_traj_squeezed[i:]))
+    # need to squeeze the grid_traj
+    grid_traj_squeezed = grid_traj
+    cost_traj_squeezed = cost_traj
+    cost2go_traj = []
+    for i in range(len(cost_traj_squeezed)):    
+        cost2go_traj.append(sum(cost_traj_squeezed[i:]))
 
-# update cost2go and visitation of each grid using grid_traj
-for i in range(len(grid_traj_squeezed)):        
-    grid_idx = grid_traj_squeezed[i]
-    cost2go_cur = env.get_cost2go(grid_idx[0], grid_idx[1])        
-    info_new = {'cost2go': min(cost2go_traj[i],cost2go_cur), 'previous_visit': 1} 
-    env.update_info_episodic(grid_idx[0], grid_idx[1], info_new)
+    # update cost2go and visitation of each grid using grid_traj
+    for i in range(len(grid_traj_squeezed)):        
+        grid_idx = grid_traj_squeezed[i]
+        cost2go_cur = env.get_cost2go(grid_idx[0], grid_idx[1])        
+        info_new = {'cost2go': min(cost2go_traj[i],cost2go_cur), 'previous_visit': 1} 
+        env.update_info_episodic(grid_idx[0], grid_idx[1], info_new)
 
+print("cost per epi")
+print(cost_per_episode)
 
 
 # print(env.xtraj)

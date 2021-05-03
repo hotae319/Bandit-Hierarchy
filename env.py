@@ -113,11 +113,24 @@ class GridEnv:
     def A_regressor(self, x_data, u_data):
         # Solve x_t+1= (Ad+del_A)x_t+Bdu_t for del_A
         # Also using sparsity in uncertainty del_A
-        xt=x_data[:,0:-1]
-        ut=u_data
-        xtp1=x_data[:,1:]
+        dt = 0.1
+        Ad = sparse.csc_matrix([
+            [1,0,dt,0],
+            [0,1,0,dt],
+            [0,0,1,0],
+            [0,0,0,1]])
+        Bd = sparse.csc_matrix([
+            [0,0],
+            [0,0],
+            [dt,0],
+            [0,dt]])
+        xt=x_data.T[:,0:-1]
+        ut=u_data.T[:,0:-1]
+        xtp1=x_data.T[:,1:]
         Adnp=Ad.toarray()
         Bdnp=Bd.toarray()
+
+        print(xt.shape, xtp1.shape, ut.shape, Adnp.shape)
         residual=xtp1-np.dot(Adnp,xt)-np.dot(Bdnp,ut)
         xt_compressed_pinv=np.linalg.pinv(xt[2:,:])
         A_uncertain_compressed_fit=np.dot(residual[2:,:],xt_compressed_pinv)
@@ -138,9 +151,10 @@ class GridEnv:
                 else:
                     safety = 0
         return safety     
-    def update_info(self, Gx, Gy, cell_info):
+    def update_info_A(self, Gx, Gy, cell_info):
         self.info[Gx][Gy]['A'] = cell_info['A']
         self.info[Gx][Gy]['B'] = cell_info['B']
+    def update_info_occupy(self, Gx, Gy, cell_info):
         self.info[Gx][Gy]['occupancy'] = cell_info['occupancy']
     def update_info_episodic(self, Gx, Gy, cell_info_epi):
         self.info[Gx][Gy]['previous_visit'] = cell_info_epi['previous_visit']
