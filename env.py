@@ -44,7 +44,7 @@ class GridEnv:
             [dt,0],
             [0,dt]])
         cell_info_true = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1}
-        cell_info_observed = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1} 
+        cell_info_observed = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 0} 
         # List including all cell's info
         # self.info[Gx][Gy] returns the each cell's info
         self.info_true = [[{} for i in range(self.N1)] for j in range(self.N2)]
@@ -65,7 +65,8 @@ class GridEnv:
         for i in range(len(cost2go_seq)):
             grid = grid_seq[i]
             self.info[grid[0]][grid[1]]['cost2go'] = cost2go_seq[i]
-            print(self.info[grid[0]][grid[1]]['cost2go'])            
+            self.info[grid[0]][grid[1]]['previous_visit'] = 1
+            # print(self.info[grid[0]][grid[1]]['cost2go'])            
         return 1
     def set_destination(self, Gx_goal, Gy_goal):
         self.destination = [Gx_goal, Gy_goal] 
@@ -88,6 +89,7 @@ class GridEnv:
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
         k = ((Gx+Gy)%3)*0.03
+        k = 0.03
         # k = 0
         A = np.array([
             [1,0,dt,0],
@@ -124,16 +126,23 @@ class GridEnv:
             [0,0],
             [dt,0],
             [0,dt]])
-        xt=x_data.T[:,0:-1]
-        ut=u_data.T[:,0:-1]
-        xtp1=x_data.T[:,1:]
+        xt=x_data.T[:,0:-2]
+        ut=u_data.T[:,1:-1]
+        xtp1=x_data.T[:,1:-1]
         Adnp=Ad.toarray()
         Bdnp=Bd.toarray()
 
         print(xt.shape, xtp1.shape, ut.shape, Adnp.shape)
+        # print(xt)
         residual=xtp1-np.dot(Adnp,xt)-np.dot(Bdnp,ut)
-        xt_compressed_pinv=np.linalg.pinv(xt[2:,:])
-        A_uncertain_compressed_fit=np.dot(residual[2:,:],xt_compressed_pinv)
+        residual=xtp1-Adnp@xt-Bdnp@ut
+        a = 0
+        b = 2
+        # xt_compressed_pinv1 = np.linalg.pinv(xt[:2,a:b])
+        xt_compressed_pinv = np.linalg.pinv(xt[2:,a:b])
+        A_uncertain_compressed_fit=np.dot(residual[2:,a:b],xt_compressed_pinv)
+        # print("xt,pinv, resid, A")
+        # print(xt[2:,a:b],xt_compressed_pinv, residual[2:,a:b], A_uncertain_compressed_fit)
         del_A=np.block([[np.zeros((2,4))],[np.zeros((2,2)),A_uncertain_compressed_fit]])
         
         return Adnp+del_A
@@ -142,14 +151,14 @@ class GridEnv:
         
     def check_safegrid(self, Gx, Gy):
         # Whether we can go to the cell or not
+        safety = 0
         for i in range(-1,2):
             for j in range(-1,2):
-                cell_info = self.info[Gx+i][Gx+j]
+                cell_info = self.info[Gx+i][Gy+j]
+                # print("check check_safegrid")
+                # print(Gx,Gy,i,j, self.info[Gx+i][Gy+j]['previous_visit'])
                 if cell_info['previous_visit'] == 1:
-                    safety = 1
-                    break
-                else:
-                    safety = 0
+                    safety = 1                    
         return safety     
     def update_info_A(self, Gx, Gy, cell_info):
         self.info[Gx][Gy]['A'] = cell_info['A']
@@ -166,6 +175,24 @@ class GridEnv:
         return info, Gx, Gy
     def get_cost2go(self, Gx, Gy):
         return self.info[Gx][Gy]['cost2go']
+    def get_cost2go_total(self):
+        cost2go = np.zeros((self.N1,self.N2))
+        for i in range(self.N2):
+            for j in range(self.N1):
+                cost2go[i,j] = self.get_cost2go(j,self.N2-i-1)
+        return cost2go
+    def get_previous_visit(self):
+        previous_visit = np.zeros((self.N1,self.N2))
+        for i in range(self.N2):
+            for j in range(self.N1):                
+                previous_visit[i,j] = self.info[j][self.N2-i-1]['previous_visit']
+        return previous_visit
+    def get_occupancy(self):
+        occupancy = np.zeros((self.N1,self.N2))
+        for i in range(self.N2):
+            for j in range(self.N1):
+                occupancy[i,j] = self.info[j][self.N2-i-1]['occupancy']
+        return occupancy
     def observe(self):
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
@@ -173,9 +200,9 @@ class GridEnv:
         cango_surr = np.zeros((3,3)) # 1: can go, 0 : cannot go
         for i in range(-1,2):
             for j in range(-1,2):
-                cell_info_true = self.info_true[Gx+i][Gx+j]
-                occupancy_surr[i+1,j+1] = cell_info_true['occupancy']
-                cango_surr[i+1,j+1] = self.check_safegrid(Gx+i,Gy+j)
+                cell_info_true = self.info_true[Gx+i][Gy+j]
+                occupancy_surr[1-j,i+1] = cell_info_true['occupancy']
+                cango_surr[1-j,i+1] = self.check_safegrid(Gx+i,Gy+j)                
         return occupancy_surr, cango_surr 
     def visualize(self, pre_traj = []):
         fig, ax = plt.subplots()

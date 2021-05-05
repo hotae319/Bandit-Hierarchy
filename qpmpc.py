@@ -72,6 +72,7 @@ def compute_local_reward(Ad,Bd,x0,xr, N= 20):
     res = prob.solve()
     # Check solver status
     if res.info.status != 'solved':
+        print(Ad,Bd,x0,xr)
         raise ValueError('OSQP did not solve the problem!')
     ctrl_cftoc = res.x[-N*nu:]
     x_cftoc = res.x[0:-N*nu]
@@ -97,7 +98,7 @@ x0 = np.array([3.5,4.5,0,1])
 x0_pre = x0
 
 # Grid Env setting
-env = GridEnv(20,20,1.,1.,x0) # N1,N2,lx,ly,x0
+env = GridEnv(10,10,1.,1.,x0) # N1,N2,lx,ly,x0
 env.set_destination(Gx_goal, Gy_goal)
 _, Gx, Gy = env.get_info()
 
@@ -109,6 +110,7 @@ print(env.info[3][4]['cost2go'])
 env.set_feasible_grids(grid_seq, cost2go_seq)
 print("cell info next:")
 print(env.info[3][4]['cost2go'],env.info[3][5]['cost2go'],env.info[7][7]['cost2go'],env.info[5][4]['cost2go'])
+print(env.info[3][4]['previous_visit'],env.info[3][5]['previous_visit'],env.info[7][7]['previous_visit'],env.info[5][4]['previous_visit'])
 # print([ele['cost2go'] for ele in env.info_true])
 
 cost_per_episode = []
@@ -121,11 +123,12 @@ while i_epi <= N_episode:
     _, Gx, Gy = env.get_info()
     i_iter = 0
     sum_local_cost = 0
+    grid_traj = []
+    cost_traj = []
     ################### START ONE ITERATION WITH BANDIT AND CFTOC ##################
     while i_iter <= N_iter and (Gx != Gx_goal or Gy != Gy_goal):
         # BANDIT POLICY
-        grid_traj = []
-        cost_traj = []
+
         # check the current grid cell and observe the context (Surrounding occupancy/which cells I can go to)
         cell_info, Gx, Gy = env.get_info()
         grid_traj.append([Gx,Gy])
@@ -138,11 +141,22 @@ while i_epi <= N_episode:
         surr = occupancy_surr + cango_surr
         grid_idxs = np.argwhere(surr == 2) # find the empty and safe cell
         
+        # if we do not have any possible ways (it means this is the first trial) (if it went to bad direction, the only choice is going back)
+        # if len(grid_idxs) == 0:
+        #     grid_idxs = np.array([[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]])
+
+        np.set_printoptions(linewidth=np.inf)
+        print(env.get_cost2go_total())
+        print(env.get_previous_visit())
+        print(env.get_occupancy())
+        print(occupancy_surr, cango_surr, Gx,Gy)
         # estimate the each reward based on (A,B,x0,xgoal) + R_global
         rewards = []
+        print(grid_idxs)
         for k in range(len(grid_idxs)):
             grid_idx = grid_idxs[k]
             if grid_idx[0] == 1 and grid_idx[1] == 1:
+                # for removing center
                 k_rmv = k
             else: 
                 # set target state based on the next grid cell
@@ -235,7 +249,7 @@ while i_epi <= N_episode:
         # Solve
         res = prob.solve()
         # Check solver status
-        if res.info.status != 'solved':
+        if res.info.status != 'solved':            
             raise ValueError('OSQP did not solve the problem!')
         ctrl_cftoc = res.x[-N*nu:]
         x_cftoc = res.x[0:-N*nu]
@@ -263,7 +277,8 @@ while i_epi <= N_episode:
         A_reg = env.A_regressor(np.array(actual_traj), np.array(u_traj))
         info_new = {'A':A_reg,'B':Bd,'occupancy': 1} 
         env.update_info_A(Gx, Gy, info_new) 
-
+        print("A")
+        print(A_reg)
         # update the 'occupancy', 'previous_visit' of observed grid cells
         for i in range(3):
             for j in range(3):
@@ -293,11 +308,23 @@ while i_epi <= N_episode:
         cost2go_cur = env.get_cost2go(grid_idx[0], grid_idx[1])        
         info_new = {'cost2go': min(cost2go_traj[i],cost2go_cur), 'previous_visit': 1} 
         env.update_info_episodic(grid_idx[0], grid_idx[1], info_new)
-
+    print("cost2go traj, grid traj:")
+    print(cost2go_traj, grid_traj_squeezed)
+    np.set_printoptions(linewidth=np.inf)
+    print(env.get_cost2go_total())
 print("cost per epi")
 print(cost_per_episode)
 
-
+plt.figure(1)
+plt.plot(range(len(cost_per_episode)),cost_per_episode)
+plt.title("learning curve of actual cost")
+# plt.legend(['ref_box','actual_box','r1','r2', 'p1','p2'])
+plt.ylabel("actual cost", fontsize = 12)
+plt.xlabel("episode" , fontsize =12, labelpad = 10)
+plt.show()
+np.set_printoptions(linewidth=np.inf)
+print(env.get_cost2go_total())
+print(env.get_previous_visit())
 # print(env.xtraj)
 # print(pred_traj)
 

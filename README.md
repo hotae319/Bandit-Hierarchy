@@ -1,7 +1,8 @@
 # Bandit-Hierarchy
-05/03/2021
+05/05/2021
 
-The entire code works.
+The entire code works. I tried only one feasible trajectory and check if it works well.
+
 ## Done
 * Obtain each cell's information and pick the best cell bsaed on the reward
 * Compute the predicted local reward, actual local reward
