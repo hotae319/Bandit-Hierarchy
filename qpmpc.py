@@ -87,8 +87,8 @@ def compute_actual_reward(x_traj, xr, u_traj):
     return reward_sum
 
 
-N_episode = 5
-N_iter = 10
+N_episode = 50
+N_iter = 15
 Gx_goal = 7
 Gy_goal = 7
 
@@ -98,13 +98,15 @@ x0 = np.array([3.5,4.5,0,1])
 x0_pre = x0
 
 # Grid Env setting
-env = GridEnv(10,10,1.,1.,x0) # N1,N2,lx,ly,x0
+env = GridEnv(12,12,1.,1.,x0) # N1,N2,lx,ly,x0
 env.set_destination(Gx_goal, Gy_goal)
+occ = [[2,3],[6,6]]
+env.set_occupancy(occ)
 _, Gx, Gy = env.get_info()
 
 # Feasible sequence of grid cells stored
-grid_seq = [[3,4],[3,5],[3,6],[3,7],[4,7],[5,7],[6,7],[7,7]]
-cost2go_seq = [40,35,30,25,20,15,10,5] #[80,70,60,50,40,30,20,10]
+grid_seq = [[3,4],[2,4],[2,5],[2,6],[2,7],[3,7],[4,8],[5,8],[6,8],[7,8],[7,9],[8,8],[7,7]]
+cost2go_seq = [330,300,270,240,200,160,130,100,70,40,20,5,0] #[80,70,60,50,40,30,20,10]
 print("cell info:")
 print(env.info[3][4]['cost2go'])
 env.set_feasible_grids(grid_seq, cost2go_seq)
@@ -125,6 +127,8 @@ while i_epi <= N_episode:
     sum_local_cost = 0
     grid_traj = []
     cost_traj = []
+
+
     ################### START ONE ITERATION WITH BANDIT AND CFTOC ##################
     while i_iter <= N_iter and (Gx != Gx_goal or Gy != Gy_goal):
         # BANDIT POLICY
@@ -145,11 +149,12 @@ while i_epi <= N_episode:
         # if len(grid_idxs) == 0:
         #     grid_idxs = np.array([[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]])
 
-        np.set_printoptions(linewidth=np.inf)
-        print(env.get_cost2go_total())
-        print(env.get_previous_visit())
-        print(env.get_occupancy())
-        print(occupancy_surr, cango_surr, Gx,Gy)
+        # np.set_printoptions(linewidth=np.inf)
+        # print(env.get_cost2go_total())
+        # print(env.get_previous_visit())
+        # print(env.get_occupancy())
+        # print(env.get_occupancy_true())
+        # print(occupancy_surr, cango_surr, Gx,Gy)
         # estimate the each reward based on (A,B,x0,xgoal) + R_global
         rewards = []
         print(grid_idxs)
@@ -163,22 +168,30 @@ while i_epi <= N_episode:
                 xr = env.set_target((Gx + grid_idx[1] - 1, Gy + 1 - grid_idx[0])) # x = x_cur + col-1, y = y_cur + 1-row
                 r_local = compute_local_reward(cell_info['A'],cell_info['B'],x0,xr)/4
                 r_global =  env.info[Gx + grid_idx[1] - 1][Gy + 1 - grid_idx[0]]['cost2go']
-                print("r_global  at {},{} :{}".format(Gx + grid_idx[1] - 1,Gy + 1 - grid_idx[0],r_global))
+                # print("r_global  at {},{} :{}".format(Gx + grid_idx[1] - 1,Gy + 1 - grid_idx[0],r_global))
                 rewards.append(r_local+r_global)
         grid_idxs = np.delete(grid_idxs, k_rmv, 0)
         print("grid_idxs,k {}, {}".format(grid_idxs,k_rmv))
         # pick the best grid cell (or exploration) and decide the target (env.set_target)
         p = np.random.random()
-        eps = 0.1 + (N_episode - i_epi)/N_episode*0.3
+        epi_exploration = N_episode*0.4
+        if i_epi < epi_exploration:
+            eps = 0.05 + (epi_exploration - i_epi)/(epi_exploration)*0.8
+        else:
+            eps = 0.05
         if p < eps:
-            i_min = random.randint(0,len(rewards)-1)
+            # i_min = random.randint(0,len(rewards)-1)
+            a = np.arange(0,len(rewards))
+            print("a,rewards,indx {},{},{}".format(a,rewards,rewards.index(min(rewards))))
+            np.delete(a,rewards.index(min(rewards)))
+            i_min = random.choice(a)
         else:
             i_min = rewards.index(min(rewards))
         xr = env.set_target((Gx + grid_idxs[i_min][1] - 1, Gy + 1 - grid_idxs[i_min][0])) 
         print("xr {}".format(xr))
         print("check grid")
         print(Gx,Gy, grid_idxs[i_min], grid_idxs, rewards, r_global, r_local)
-        print("p{}".format(p))
+        print("p {}".format(p))
         # grid_traj.append(Gx,Gy)
 
 
@@ -266,7 +279,7 @@ while i_epi <= N_episode:
             x0 = env.xcur
             actual_traj.append(env.xcur)
             u_traj.append(ctrl)
-        env.visualize(pred_traj)
+        # env.visualize(pred_traj)
 
         # compute the actual cost and store the cost between two grid cells
         actual_cost_local = compute_actual_reward(actual_traj, xr, u_traj)
@@ -277,8 +290,6 @@ while i_epi <= N_episode:
         A_reg = env.A_regressor(np.array(actual_traj), np.array(u_traj))
         info_new = {'A':A_reg,'B':Bd,'occupancy': 1} 
         env.update_info_A(Gx, Gy, info_new) 
-        print("A")
-        print(A_reg)
         # update the 'occupancy', 'previous_visit' of observed grid cells
         for i in range(3):
             for j in range(3):
@@ -292,29 +303,42 @@ while i_epi <= N_episode:
         i_iter += 1
     i_epi += 1
     print("sum_local_cost:{}".format(sum_local_cost))
-    cost_per_episode.append(sum_local_cost)
-    ################### AFTER REACHING THE GOAL#################
-
-    # need to squeeze the grid_traj
-    grid_traj_squeezed = grid_traj
-    cost_traj_squeezed = cost_traj
-    cost2go_traj = []
-    for i in range(len(cost_traj_squeezed)):    
-        cost2go_traj.append(sum(cost_traj_squeezed[i:]))
-
-    # update cost2go and visitation of each grid using grid_traj
-    for i in range(len(grid_traj_squeezed)):        
-        grid_idx = grid_traj_squeezed[i]
-        cost2go_cur = env.get_cost2go(grid_idx[0], grid_idx[1])        
-        info_new = {'cost2go': min(cost2go_traj[i],cost2go_cur), 'previous_visit': 1} 
-        env.update_info_episodic(grid_idx[0], grid_idx[1], info_new)
-    print("cost2go traj, grid traj:")
-    print(cost2go_traj, grid_traj_squeezed)
+   
+    # print the info
     np.set_printoptions(linewidth=np.inf)
     print(env.get_cost2go_total())
+    print(env.get_previous_visit())
+    print(env.get_occupancy())
+    print(env.get_occupancy_true())
+    print(occupancy_surr, cango_surr, Gx,Gy)
+
+    ################### AFTER REACHING THE GOAL#################
+    if i_iter > N_iter:
+        # failure
+        #  no need to update
+        cost_per_episode.append(330)
+    else:
+        # need to squeeze the grid_traj
+        cost_per_episode.append(sum_local_cost)
+        grid_traj_squeezed = grid_traj
+        cost_traj_squeezed = cost_traj
+        cost2go_traj = []
+        for i in range(len(cost_traj_squeezed)):    
+            cost2go_traj.append(sum(cost_traj_squeezed[i:]))
+        # update cost2go and visitation of each grid using grid_traj
+        for i in range(len(grid_traj_squeezed)):        
+            grid_idx = grid_traj_squeezed[i]
+            cost2go_cur = env.get_cost2go(grid_idx[0], grid_idx[1])        
+            info_new = {'cost2go': min(cost2go_traj[i],cost2go_cur), 'previous_visit': 1} 
+            env.update_info_episodic(grid_idx[0], grid_idx[1], info_new)
+        print("cost2go traj, grid traj:")
+        print(cost2go_traj, grid_traj_squeezed)
+        np.set_printoptions(linewidth=np.inf)
+        # env.visualize()
+        print(env.get_cost2go_total())
 print("cost per epi")
 print(cost_per_episode)
-
+env.visualize()
 plt.figure(1)
 plt.plot(range(len(cost_per_episode)),cost_per_episode)
 plt.title("learning curve of actual cost")

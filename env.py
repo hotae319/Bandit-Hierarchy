@@ -6,6 +6,7 @@
 # Import packages.
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 import scipy as sp
 from scipy import sparse
 import sys, os
@@ -43,8 +44,8 @@ class GridEnv:
             [0,0],
             [dt,0],
             [0,dt]])
-        cell_info_true = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 1}
-        cell_info_observed = {'A':Ad,'B':Bd,'cost2go': 100, 'occupancy': 1, 'previous_visit': 0} 
+        cell_info_true = {'A':Ad,'B':Bd,'cost2go': 1000, 'occupancy': 1, 'previous_visit': 1}
+        cell_info_observed = {'A':Ad,'B':Bd,'cost2go': 1000, 'occupancy': 1, 'previous_visit': 0} 
         # List including all cell's info
         # self.info[Gx][Gy] returns the each cell's info
         self.info_true = [[{} for i in range(self.N1)] for j in range(self.N2)]
@@ -58,9 +59,11 @@ class GridEnv:
         self.xtraj = [x0[0]]
         self.ytraj = [x0[1]]
 
-    def set_occupancy(self,occ):
+    def set_occupancy(self,occs):
         # occ = [[1,2],[4,5]] (the set of (col,row) of grids)
-        return 1
+        for occ in occs:
+            self.info_true[occ[0]][occ[1]]['occupancy'] = 0    
+        self.occupancy_list = occs    
     def set_feasible_grids(self, grid_seq, cost2go_seq):
         for i in range(len(cost2go_seq)):
             grid = grid_seq[i]
@@ -89,7 +92,7 @@ class GridEnv:
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
         k = ((Gx+Gy)%3)*0.03
-        k = 0.03
+        # k = 0.03
         # k = 0
         A = np.array([
             [1,0,dt,0],
@@ -193,6 +196,12 @@ class GridEnv:
             for j in range(self.N1):
                 occupancy[i,j] = self.info[j][self.N2-i-1]['occupancy']
         return occupancy
+    def get_occupancy_true(self):
+        occupancy = np.zeros((self.N1,self.N2))
+        for i in range(self.N2):
+            for j in range(self.N1):
+                occupancy[i,j] = self.info_true[j][self.N2-i-1]['occupancy']
+        return occupancy
     def observe(self):
         Gx = int(self.xcur[0])
         Gy = int(self.xcur[1])
@@ -202,18 +211,28 @@ class GridEnv:
             for j in range(-1,2):
                 cell_info_true = self.info_true[Gx+i][Gy+j]
                 occupancy_surr[1-j,i+1] = cell_info_true['occupancy']
+                self.info[Gx+i][Gy+j]['occupancy'] = cell_info_true['occupancy']
                 cango_surr[1-j,i+1] = self.check_safegrid(Gx+i,Gy+j)                
         return occupancy_surr, cango_surr 
     def visualize(self, pre_traj = []):
         fig, ax = plt.subplots()
         # draw gridlines
         ax.grid(which='major', axis='both', linestyle='-', color='k', linewidth=2)
+        grid_data = np.ones((self.N1,self.N2))*np.nan
+        # color the grid cell
+        for occ in self.occupancy_list:
+            Gx = occ[0]
+            Gy = occ[1]
+            grid_data[Gy,Gx] = 0
+        my_cmap = matplotlib.colors.ListedColormap(['r'])
+        ax.imshow(grid_data, cmap=my_cmap, extent=(0.0, self.N1, self.N2, 0.0))
         ax.set_xticks(np.arange(0, self.lx*self.N1,self.lx));
         ax.set_yticks(np.arange(0, self.ly*self.N2,self.ly));
         ax.set_ylim(0,self.ly*self.N2)
         ax.set_xlim(0,self.lx*self.N1)
-        plt.scatter(self.xcur[0], self.xcur[1], color = 'red', s= 50, marker =  'x' )
-        plt.scatter(self.xtraj,self.ytraj)
+        # plt.scatter(self.xcur[0], self.xcur[1], color = 'red', s= 50, marker =  'x' )
+        plt.scatter(self.xtraj[-2], self.ytraj[-2], color = 'red', s= 50, marker =  'x' )
+        plt.scatter(self.xtraj[:-2],self.ytraj[:-2])
         plt.scatter(self.xtar[0],self.xtar[1], color = 'green', s= 50, marker =  'o')
         plt.scatter(self.destination[0]*self.lx + self.lx/2,self.destination[1]*self.ly + self.ly/2, color = 'hotpink', s= 100, marker =  'p')
         # prediction plot
@@ -223,7 +242,7 @@ class GridEnv:
             pre_xtraj.append(pre_traj[i][0])
             pre_ytraj.append(pre_traj[i][1])
         plt.scatter(pre_xtraj,pre_ytraj, alpha = 0.5, marker = '^')
-        plt.legend(['current', 'actual_traj','bandit target','goal','predicted_traj'])
+        plt.legend(['current', 'actual_traj','bandit target','goal','predicted_traj'], loc='lower right')
         plt.show()
 
 if __name__ == '__main__':

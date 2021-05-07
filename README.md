@@ -1,7 +1,8 @@
 # Bandit-Hierarchy
-05/05/2021
+05/07/2021
 
 The entire code works. I tried only one feasible trajectory and check if it works well.
+Under uncertain obstacles and dynamics, the code works well and the learning curve looks good. 
 
 ## Done
 * Obtain each cell's information and pick the best cell bsaed on the reward
